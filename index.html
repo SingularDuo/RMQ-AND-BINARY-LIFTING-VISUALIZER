@@ -7,6 +7,8 @@
   <style>
     body{font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; margin:16px; background:#0f172a; color:#e6eef8}
     h1{font-size:20px;margin:8px 0}
+    .topbar{display:flex;gap:12px;align-items:center;margin-bottom:8px}
+    .lang{margin-left:auto}
     .container{display:grid;grid-template-columns:1fr 1fr;gap:18px}
     .card{background:linear-gradient(180deg,#0b1220, #071226); padding:14px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,.7)}
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -30,10 +32,21 @@
     .muted{color:#8aa6b3;font-size:13px}
     .small{font-size:13px}
     textarea{resize:vertical}
+    .chat{background:#071926;border:1px solid #18324a;padding:8px;border-radius:8px;margin-top:8px;max-height:160px;overflow:auto}
+    .chat .msg{padding:6px;border-radius:6px;margin-bottom:6px;background:linear-gradient(90deg,#06292f,#04202a)}
+    .chatHeader{display:flex;justify-content:space-between;align-items:center;gap:8px}
+    .chatControls{display:flex;gap:6px}
   </style>
 </head>
 <body>
-  <h1>Visualizer: RMQ (Sparse Table) & Binary Lifting (LCA)</h1>
+  <div class="topbar">
+    <h1>Visualizer: RMQ (Sparse Table) & Binary Lifting (LCA)</h1>
+    <div class="lang">
+      <label class="small muted">Language</label>
+      <select id="uiLang"><option value="vi">Tiếng Việt</option><option value="en">English</option></select>
+    </div>
+  </div>
+
   <div class="container">
     <div class="card" id="rmq-card">
       <h2>RMQ — Sparse Table</h2>
@@ -51,6 +64,12 @@
       </div>
       <div id="arrayBoxes" class="boxes"></div>
       <div id="levels"></div>
+
+      <div class="chatHeader" style="margin-top:8px">
+        <div class="muted">Execution Log</div>
+        <div class="chatControls"><button id="rmqClear">Clear</button></div>
+      </div>
+      <div id="rmqChat" class="chat"></div>
     </div>
 
     <div class="card" id="bl-card">
@@ -78,12 +97,55 @@
         <div class="result" id="lcaResult"></div>
       </div>
       <div id="upTableWrap"></div>
+
+      <div class="chatHeader" style="margin-top:8px">
+        <div class="muted">Execution Log</div>
+        <div class="chatControls"><button id="blClear">Clear</button></div>
+      </div>
+      <div id="blChat" class="chat"></div>
     </div>
   </div>
 
   <script>
     const sleep = (ms)=> new Promise(r=>setTimeout(r, ms));
+    const uiLang = document.getElementById('uiLang');
 
+    // --- i18n helper ---
+    const T = {
+      en: {
+        rmq_len: (len)=>`len = ${len}`,
+        rmq_k: (k)=>`k = floor(log2(len)) = ${k}`,
+        rmq_use: (lIdx, rIdx)=>`Use st[${lIdx}][k] and st[${rIdx}][k]`,
+        rmq_done: (res)=>`Result: ${res}`,
+        bl_leveling: (u,v,diff)=>`Leveling: bring ${u} up by ${diff} steps to match depth of ${v}`,
+        bl_jump: (from,i,to)=>`Jump: node ${from} -> up[${i}] = ${to}`,
+        bl_check: (i,a,b)=>`Check 2^${i}: up[u][${i}] = ${a}, up[v][${i}] = ${b}`,
+        bl_skip: (i,val)=>`Skip (same): 2^${i} leads to ${val}`,
+        bl_found: (x)=>`LCA = ${x}`
+      },
+      vi: {
+        rmq_len: (len)=>`len = ${len}`,
+        rmq_k: (k)=>`k = floor(log2(len)) = ${k}`,
+        rmq_use: (lIdx, rIdx)=>`Dùng st[${lIdx}][k] và st[${rIdx}][k]`,
+        rmq_done: (res)=>`Kết quả: ${res}`,
+        bl_leveling: (u,v,diff)=>`Đưa ${u} lên cùng bậc với ${v} (cần ${diff} bước)`,
+        bl_jump: (from,i,to)=>`Nhảy: ${from} -> up[${i}] = ${to}`,
+        bl_check: (i,a,b)=>`Kiểm tra 2^${i}: up[u][${i}] = ${a}, up[v][${i}] = ${b}`,
+        bl_skip: (i,val)=>`Bỏ (giống nhau): 2^${i} dẫn tới ${val}`,
+        bl_found: (x)=>`LCA = ${x}`
+      }
+    };
+
+    function t(key, ...args){ const lang = uiLang.value||'vi'; return T[lang][key](...args); }
+
+    // --- chat helpers ---
+    const rmqChat = document.getElementById('rmqChat');
+    const blChat = document.getElementById('blChat');
+    document.getElementById('rmqClear').addEventListener('click', ()=> rmqChat.innerHTML='');
+    document.getElementById('blClear').addEventListener('click', ()=> blChat.innerHTML='');
+    function pushChat(el, text){ const d = document.createElement('div'); d.className='msg'; d.textContent = text; el.appendChild(d); el.scrollTop = el.scrollHeight; }
+
+    // --- RMQ ---
     const arrInput = document.getElementById('arrInput');
     const buildArr = document.getElementById('buildArr');
     const animateBuildArr = document.getElementById('animateBuildArr');
@@ -146,7 +208,18 @@
       const n = a.length; if(L<1||R>n||L>R) return null;
       const len = R-L+1; const k = lg[len];
       const res = Math.min(st[L-1][k], st[R-(1<<k)][k]);
-      return {res,k};
+      return {res,k,len};
+    }
+
+    function logRMQSteps(L,R){
+      rmqChat.innerHTML = '';
+      const out = queryRMQ(L,R);
+      if(!out) { pushChat(rmqChat, uiLang.value==='en' ? 'Invalid range' : 'Khoảng không hợp lệ'); return; }
+      pushChat(rmqChat, t('rmq_len', out.len));
+      pushChat(rmqChat, t('rmq_k', out.k));
+      const left = L-1, right = R - (1<<out.k);
+      pushChat(rmqChat, t('rmq_use', left, right));
+      pushChat(rmqChat, t('rmq_done', out.res));
     }
 
     function highlightRange(){
@@ -160,42 +233,42 @@
 
     buildArr.addEventListener('click', ()=>{
       const vals = arrInput.value.trim().split(/\s+/).map(x=>Number(x)).filter(x=>!Number.isNaN(x));
-      if(!vals.length) { alert('Nhập mảng hợp lệ'); return; }
+      if(!vals.length) { alert(uiLang.value==='en'? 'Enter a valid array' : 'Nhập mảng hợp lệ'); return; }
       a = vals; makeBoxes(); buildSparse(); rmqResult.textContent='';
     });
 
     runQuery.addEventListener('click', ()=>{
       const L = parseInt(qL.value), R = parseInt(qR.value);
-      if(!L || !R){ alert('Chọn L và R'); return; }
+      if(!L || !R){ alert(uiLang.value==='en'? 'Select L and R' : 'Chọn L và R'); return; }
       const out = queryRMQ(Math.min(L,R), Math.max(L,R));
       if(!out){ rmqResult.textContent='invalid'; return; }
-      rmqResult.textContent = 'Min = ' + out.res + ` (used k=${out.k})`;
-      const levelBoxes = document.querySelectorAll('.level .box');
-      levelBoxes.forEach(x=>x.classList.remove('selected'));
+      rmqResult.textContent = (uiLang.value==='en' ? 'Min = ' : 'Min = ') + out.res + ` (k=${out.k})`;
       const k = out.k; const leftIdx = Math.min(L,R)-1; const rightIdx = Math.max(L,R)-(1<<k);
       const elems = document.querySelectorAll(`.box[data-j='${k}']`);
+      elems.forEach(x=>x.classList.remove('selected'));
       elems.forEach(x=>{ if(Number(x.dataset.i)===leftIdx || Number(x.dataset.i)===rightIdx) x.classList.add('selected'); })
       highlightRange();
+      logRMQSteps(Math.min(L,R), Math.max(L,R));
     });
 
+    animateBuildArr.addEventListener('click', ()=>{ animateBuildSparse(); });
+
     async function animateBuildSparse(){
-      const n = a.length; if(n===0){ alert('Build mảng trước'); return; }
+      const n = a.length; if(n===0){ alert(uiLang.value==='en'? 'Build array first' : 'Build mảng trước'); return; }
       lg = Array(n+1).fill(0); for(let i=2;i<=n;i++) lg[i]=lg[Math.floor(i/2)]+1;
       const K = lg[n]+1;
       st = Array.from({length:n}, ()=>Array(K).fill(null));
       renderLevels();
-      for(let i=0;i<n;i++){ st[i][0]=a[i]; renderLevels(); await sleep(160); }
+      for(let i=0;i<n;i++){ st[i][0]=a[i]; renderLevels(); await sleep(120); }
       for(let j=1;j<K;j++){
         for(let i=0;i + (1<<j) <= n; i++){
           const left = st[i][j-1]; const right = st[i + (1<<(j-1))][j-1];
           st[i][j] = Math.min(left,right);
-          renderLevels(); await sleep(220);
+          renderLevels(); await sleep(180);
         }
       }
-      rmqResult.textContent = 'Animated build complete';
+      rmqResult.textContent = uiLang.value==='en'? 'Animated build complete' : 'Hoàn thành animate build';
     }
-
-    animateBuildArr.addEventListener('click', ()=>{ animateBuildSparse(); });
 
     // ============ Binary Lifting ============
     const treeSVG = document.getElementById('treeSVG');
@@ -208,7 +281,6 @@
     const findLCA = document.getElementById('findLCA');
     const animateLCA = document.getElementById('animateLCA');
     const lcaResult = document.getElementById('lcaResult');
-    const upTableWrap = document.getElementById('upTableWrap');
 
     let adj = {};
     let parent = {};
@@ -223,6 +295,7 @@
       }
       return {n:9, edges:[[1,2],[1,3],[2,4],[2,5],[3,6],[3,7],[4,8],[5,9]]};
     }
+
     function buildAdj(n, edges){
       adj = {}; for(let i=1;i<=n;i++) adj[i]=[];
       edges.forEach(e=>{ const u=e[0], v=e[1]; if(!adj[u]) adj[u]=[]; if(!adj[v]) adj[v]=[]; adj[u].push(v); adj[v].push(u); });
@@ -313,71 +386,51 @@
       return parent[u];
     }
 
-    async function animateLCAProcess(uOrig, vOrig){
-      if(!up || Object.keys(up).length===0){ alert('Xây up table trước (Build Tree hoặc Animate BL Build)'); return; }
-      let u = uOrig, v = vOrig;
-      treeSVG.querySelectorAll('circle').forEach(c=>c.style.stroke='#2dd4bf');
-      upTableWrap.querySelectorAll('td').forEach(td=>td.classList.remove('animating'));
-      lcaResult.textContent = '';
-
-      if(depth[u]===undefined || depth[v]===undefined){ alert('Node không tồn tại trong cây'); return; }
-
-      if(depth[u] < depth[v]) [u,v]=[v,u];
-      let diff = depth[u] - depth[v];
-
-      lcaResult.textContent = `Leveling: bring node ${uOrig} up by ${diff} steps`;
-      for(let i=LOG-1;i>=0;i--){
-        if((diff >> i) & 1){
-          const cell = upTableWrap.querySelector(`tbody tr:nth-child(${u}) td:nth-child(${i+2})`);
-          if(cell) cell.classList.add('animating');
-          highlightNodeVisual(u, '#f97316');
-          lcaResult.textContent = `Leveling: jump ${u} -> up[${i}] = ${up[u][i]}`;
-          await sleep(700);
-          if(cell) cell.classList.remove('animating');
-          u = up[u][i];
-          highlightNodeVisual(u, '#10b981');
-          await sleep(400);
-        }
-      }
-
-      if(u === v){
-        lcaResult.textContent = `LCA = ${u} (found after leveling)`;
-        highlightNodeVisual(u, '#f59e0b');
-        return u;
-      }
-
-      lcaResult.textContent = `Searching highest different ancestors (from 2^{${LOG-1}} down) ...`;
-      for(let i=LOG-1;i>=0;i--){
-        const cellU = upTableWrap.querySelector(`tbody tr:nth-child(${u}) td:nth-child(${i+2})`);
-        const cellV = upTableWrap.querySelector(`tbody tr:nth-child(${v}) td:nth-child(${i+2})`);
-        if(cellU) cellU.classList.add('animating');
-        if(cellV) cellV.classList.add('animating');
-        await sleep(500);
-        const a = up[u][i], b = up[v][i];
-        if(a !== b){
-          lcaResult.textContent = `At 2^${i}: up[${u}][${i}] = ${a} != up[${v}][${i}] = ${b} → jump`;
-          highlightNodeVisual(u,'#f97316');
-          highlightNodeVisual(v,'#f97316');
-          await sleep(350);
-          u = a; v = b;
-          highlightNodeVisual(u,'#10b981');
-          highlightNodeVisual(v,'#10b981');
-          await sleep(350);
-        } else {
-          lcaResult.textContent = `At 2^${i}: up[${u}][${i}] = up[${v}][${i}] = ${a} → skip`;
-          await sleep(300);
-        }
-        if(cellU) cellU.classList.remove('animating');
-        if(cellV) cellV.classList.remove('animating');
-      }
-
-      lcaResult.textContent = `LCA = parent[${u}] = ${parent[u]}`;
-      highlightNodeVisual(parent[u],'#f59e0b');
-      return parent[u];
+    function logBLSteps(u0, v0){
+      blChat.innerHTML = '';
+      if(depth[u0]===undefined || depth[v0]===undefined){ pushChat(blChat, uiLang.value==='en'? 'Node not in tree' : 'Node không tồn tại'); return; }
+      let u=u0, v=v0;
+      if(depth[u] < depth[v]){ pushChat(blChat, t('bl_leveling', v0, u0, depth[v]-depth[u])); [u,v]=[v,u]; }
+      else pushChat(blChat, t('bl_leveling', u0, v0, Math.abs(depth[u]-depth[v])));
+      let diff = Math.abs(depth[u]-depth[v]);
+      for(let i=LOG-1;i>=0;i--){ if((diff>>i)&1){ pushChat(blChat, t('bl_jump', u, i, up[u][i])); u = up[u][i]; } }
+      if(u===v){ pushChat(blChat, t('bl_found', u)); return; }
+      for(let i=LOG-1;i>=0;i--){ const a = up[u][i], b = up[v][i]; pushChat(blChat, t('bl_check', i, a, b)); if(a!==b){ pushChat(blChat, t('bl_jump', u, i, a)); pushChat(blChat, t('bl_jump', v, i, b)); u=a; v=b; } else pushChat(blChat, t('bl_skip', i, a)); }
+      pushChat(blChat, t('bl_found', parent[u]));
     }
 
-    function highlightNodeVisual(id, color){ const texts = Array.from(treeSVG.querySelectorAll('text')); texts.forEach(t=>{ if(Number(t.textContent)===id){ t.previousSibling.style.stroke = color; } }); }
-    async function animateBuildUp(n, edges){
+    document.getElementById('loadTree').addEventListener('click', ()=>{
+      const text = treeInput.value.trim();
+      if(!text){ alert(uiLang.value==='en'? 'Enter tree' : 'Nhập cây'); return; }
+      const lines = text.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+      const n = parseInt(lines[0]);
+      if(Number.isNaN(n)){ alert(uiLang.value==='en'? 'First line must be n' : 'Dòng đầu phải là n'); return; }
+      const edges = [];
+      for(let i=1;i<lines.length;i++){ const p=lines[i].split(/\s+/); if(p.length<2) continue; edges.push([parseInt(p[0]), parseInt(p[1])]); }
+      buildAdj(n, edges); renderTree(); pushChat(blChat, uiLang.value==='en'? 'Custom tree loaded' : 'Đã load cây');
+    });
+
+    document.getElementById('buildTree').addEventListener('click', ()=>{ const s = sampleGraphs(sampleTree.value); buildAdj(s.n, s.edges); renderTree(); pushChat(blChat, uiLang.value==='en'? 'Sample tree loaded' : 'Đã load sample'); });
+
+    document.getElementById('animateBuildBL').addEventListener('click', ()=>{ const s = sampleGraphs(sampleTree.value); animateBuildUp(s.n, s.edges); renderTree(); pushChat(blChat, uiLang.value==='en'? 'Animating build' : 'Đang animate build'); });
+
+    document.getElementById('findLCA').addEventListener('click', ()=>{
+      const u = parseInt(nodeU.value), v = parseInt(nodeV.value);
+      if(!u||!v||u<1||v<1||u>N||v>N){ alert(uiLang.value==='en'? 'Invalid nodes' : 'Node không hợp lệ'); return; }
+      const ans = lca(u,v);
+      lcaResult.textContent = (uiLang.value==='en'? 'LCA = ' : 'LCA = ') + ans + ' (depth ' + depth[ans] + ')';
+      highlightPath(u,v,ans);
+      logBLSteps(u,v);
+    });
+
+    document.getElementById('animateLCA').addEventListener('click', ()=>{
+      const u = parseInt(nodeU.value), v = parseInt(nodeV.value);
+      if(!u||!v||u<1||v<1||u>N||v>N){ alert(uiLang.value==='en'? 'Invalid nodes' : 'Node không hợp lệ'); return; }
+      animateLCAProcess(u,v);
+      logBLSteps(u,v);
+    });
+
+    async function animateBuildUp(n, edges){ /* animated builder (same idea as earlier) */
       buildAdj(n, edges);
       for(let v=1; v<=N; v++) up[v]=Array(LOG).fill(null);
       for(let v=1; v<=N; v++) up[v][0] = parent[v]===undefined? v : parent[v];
@@ -388,53 +441,54 @@
           const val = (mid && up[mid]) ? up[mid][j-1] : mid;
           up[v][j] = val;
           renderUpTable();
-          const cell = upTableWrap.querySelector(`tbody tr:nth-child(${v}) td:nth-child(${j+2})`);
+          const cell = document.querySelector(`#upTableWrap tbody tr:nth-child(${v}) td:nth-child(${j+2})`);
           if(cell) cell.classList.add('animating');
-          await sleep(180);
+          await sleep(160);
           if(cell) cell.classList.remove('animating');
         }
       }
     }
-    try{
-      loadTreeBtn.addEventListener('click', ()=>{
-        const text = treeInput.value.trim();
-        if(!text){ alert('Nhập cây vào hộp văn bản (hoặc dùng sample)'); return; }
-        const lines = text.split(/\n+/).map(s=>s.trim()).filter(Boolean);
-        const n = parseInt(lines[0]); if(Number.isNaN(n)){ alert('Dòng đầu phải là n (số đỉnh)'); return; }
-        const edges = [];
-        for(let i=1;i<lines.length;i++){ const parts = lines[i].split(/\s+/); if(parts.length<2) continue; const u = parseInt(parts[0]), v = parseInt(parts[1]); if(Number.isNaN(u)||Number.isNaN(v)) continue; edges.push([u,v]); }
-        buildAdj(n, edges);
-        renderTree();
-        lcaResult.textContent='Loaded custom tree';
-      });
-    }catch(e){ /* ignore */ }
-    buildTreeBtn.addEventListener('click', ()=>{
-      const s = sampleGraphs(sampleTree.value);
-      buildAdj(s.n, s.edges);
-      renderTree();
-      lcaResult.textContent='';
-    });
 
-    document.getElementById('animateBuildBL').addEventListener('click', ()=>{
-      const s = sampleGraphs(sampleTree.value);
-      animateBuildUp(s.n, s.edges);
-      renderTree();
-      lcaResult.textContent='';
-    });
-
-    findLCA.addEventListener('click', ()=>{
-      const u = parseInt(nodeU.value), v = parseInt(nodeV.value);
-      if(!u||!v||u<1||v<1||u>N||v>N) { alert('Chọn node hợp lệ'); return; }
-      const ans = lca(u,v);
-      lcaResult.textContent = 'LCA = ' + ans + ' (depth ' + depth[ans] + ')';
-      highlightPath(u,v,ans);
-    });
-
-    animateLCA.addEventListener('click', ()=>{
-      const u = parseInt(nodeU.value), v = parseInt(nodeV.value);
-      if(!u||!v||u<1||v<1||u>N||v>N) { alert('Chọn node hợp lệ'); return; }
-      animateLCAProcess(u,v);
-    });
+    async function animateLCAProcess(uOrig, vOrig){
+      if(!up || Object.keys(up).length===0){ alert(uiLang.value==='en'? 'Build up table first' : 'Xây up table trước'); return; }
+      let u=uOrig, v=vOrig;
+      treeSVG.querySelectorAll('circle').forEach(c=>c.style.stroke='#2dd4bf');
+      document.querySelectorAll('#upTableWrap td').forEach(td=>td.classList.remove('animating'));
+      lcaResult.textContent = '';
+      if(depth[u]===undefined || depth[v]===undefined){ alert(uiLang.value==='en'? 'Node not found' : 'Node không tồn tại'); return; }
+      if(depth[u] < depth[v]) [u,v]=[v,u];
+      let diff = depth[u] - depth[v];
+      lcaResult.textContent = (uiLang.value==='en'? 'Leveling...' : 'Đang nâng cấp...');
+      for(let i=LOG-1;i>=0;i--){ if((diff >> i) & 1){
+        const cell = document.querySelector(`#upTableWrap tbody tr:nth-child(${u}) td:nth-child(${i+2})`);
+        if(cell) cell.classList.add('animating');
+        highlightNodeVisual(u,'#f97316');
+        lcaResult.textContent = (uiLang.value==='en'? `Jump ${u} -> up[${i}] = ${up[u][i]}` : `Nhảy ${u} -> up[${i}] = ${up[u][i]}`);
+        await sleep(600);
+        if(cell) cell.classList.remove('animating');
+        u = up[u][i];
+        highlightNodeVisual(u,'#10b981');
+        await sleep(300);
+      } }
+      if(u===v){ lcaResult.textContent = (uiLang.value==='en'? `LCA = ${u}` : `LCA = ${u}`); highlightNodeVisual(u,'#f59e0b'); return u; }
+      lcaResult.textContent = (uiLang.value==='en'? 'Searching...' : 'Đang tìm...');
+      for(let i=LOG-1;i>=0;i--){
+        const cellU = document.querySelector(`#upTableWrap tbody tr:nth-child(${u}) td:nth-child(${i+2})`);
+        const cellV = document.querySelector(`#upTableWrap tbody tr:nth-child(${v}) td:nth-child(${i+2})`);
+        if(cellU) cellU.classList.add('animating'); if(cellV) cellV.classList.add('animating');
+        await sleep(400);
+        const a = up[u][i], b = up[v][i];
+        if(a !== b){
+          highlightNodeVisual(u,'#f97316'); highlightNodeVisual(v,'#f97316'); await sleep(250);
+          u = a; v = b;
+          highlightNodeVisual(u,'#10b981'); highlightNodeVisual(v,'#10b981'); await sleep(250);
+        }
+        if(cellU) cellU.classList.remove('animating'); if(cellV) cellV.classList.remove('animating');
+      }
+      lcaResult.textContent = (uiLang.value==='en'? `LCA = ${parent[u]}` : `LCA = ${parent[u]}`);
+      highlightNodeVisual(parent[u],'#f59e0b');
+      return parent[u];
+    }
 
     function highlightPath(u,v,anc){
       treeSVG.querySelectorAll('circle').forEach(c=>c.style.stroke='#2dd4bf');
@@ -443,6 +497,9 @@
       x=v; while(x!==anc){ highlightNode(x); x = parent[x]; if(x===undefined) break; }
     }
     function highlightNode(id){ const texts = Array.from(treeSVG.querySelectorAll('text')); texts.forEach(t=>{ if(t.textContent==id) t.previousSibling.style.stroke = '#f97316'; }); }
+    function highlightNodeVisual(id, color){ const texts = Array.from(treeSVG.querySelectorAll('text')); texts.forEach(t=>{ if(Number(t.textContent)===id){ t.previousSibling.style.stroke = color; } }); }
+
+    // defaults
     arrInput.value = '5 2 4 7 1 3 6 8'; buildArr.click();
     treeInput.value = '8\n1 2\n1 3\n2 4\n2 5\n3 6\n2 7\n7 8';
     document.getElementById('buildTree').click();
