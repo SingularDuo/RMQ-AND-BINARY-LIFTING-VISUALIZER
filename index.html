@@ -65,14 +65,7 @@
         <button id="loadTree">Load Tree</button>
       </div>
       <div style="margin-top:8px">
-        <textarea id="treeInput" placeholder="Cú pháp: dòng 1: n
-các dòng sau: u v (một cạnh mỗi dòng)
-Ví dụ:
-5
-1 2
-1 3
-3 4
-3 5" style="width:100%;height:90px;border-radius:8px;padding:8px;background:#071926;color:#e6eef8;border:1px solid #18324a"></textarea>
+        <textarea id="treeInput" placeholder="Cú pháp: dòng 1: n\ncác dòng sau: u v (một cạnh mỗi dòng)\nVí dụ:\n5\n1 2\n1 3\n3 4\n3 5" style="width:100%;height:90px;border-radius:8px;padding:8px;background:#071926;color:#e6eef8;border:1px solid #18324a"></textarea>
       </div>
 
       <div class="muted" style="margin-top:8px">Chọn hai node để tìm LCA; click node để điền u/v hoặc nhập trực tiếp.</div>
@@ -89,10 +82,8 @@ Ví dụ:
   </div>
 
   <script>
-    // helper
     const sleep = (ms)=> new Promise(r=>setTimeout(r, ms));
 
-    // ============ RMQ ============
     const arrInput = document.getElementById('arrInput');
     const buildArr = document.getElementById('buildArr');
     const animateBuildArr = document.getElementById('animateBuildArr');
@@ -179,7 +170,6 @@ Ví dụ:
       const out = queryRMQ(Math.min(L,R), Math.max(L,R));
       if(!out){ rmqResult.textContent='invalid'; return; }
       rmqResult.textContent = 'Min = ' + out.res + ` (used k=${out.k})`;
-      // highlight corresponding level boxes
       const levelBoxes = document.querySelectorAll('.level .box');
       levelBoxes.forEach(x=>x.classList.remove('selected'));
       const k = out.k; const leftIdx = Math.min(L,R)-1; const rightIdx = Math.max(L,R)-(1<<k);
@@ -194,9 +184,7 @@ Ví dụ:
       const K = lg[n]+1;
       st = Array.from({length:n}, ()=>Array(K).fill(null));
       renderLevels();
-      // fill level 0
       for(let i=0;i<n;i++){ st[i][0]=a[i]; renderLevels(); await sleep(160); }
-      // higher levels
       for(let j=1;j<K;j++){
         for(let i=0;i + (1<<j) <= n; i++){
           const left = st[i][j-1]; const right = st[i + (1<<(j-1))][j-1];
@@ -210,7 +198,6 @@ Ví dụ:
     animateBuildArr.addEventListener('click', ()=>{ animateBuildSparse(); });
 
     // ============ Binary Lifting ============
-
     const treeSVG = document.getElementById('treeSVG');
     const buildTreeBtn = document.getElementById('buildTree');
     const sampleTree = document.getElementById('sampleTree');
@@ -230,31 +217,36 @@ Ví dụ:
     let nodesOrder = [];
     let N=0, LOG=0;
 
-    function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
-
     function sampleGraphs(id){
       if(id==='sample1'){
         return {n:8, edges:[[1,2],[1,3],[2,4],[2,5],[3,6],[2,7],[7,8]]};
       }
       return {n:9, edges:[[1,2],[1,3],[2,4],[2,5],[3,6],[3,7],[4,8],[5,9]]};
     }
-
     function buildAdj(n, edges){
       adj = {}; for(let i=1;i<=n;i++) adj[i]=[];
-      edges.forEach(e=>{ adj[e[0]].push(e[1]); adj[e[1]].push(e[0]); });
+      edges.forEach(e=>{ const u=e[0], v=e[1]; if(!adj[u]) adj[u]=[]; if(!adj[v]) adj[v]=[]; adj[u].push(v); adj[v].push(u); });
       N=n; LOG = Math.ceil(Math.log2(Math.max(1,n)))+1;
       parent = {}; depth = {}; up = {}; nodesOrder=[];
-      dfsBL(1,1,0);
-      for(let v=1; v<=N; v++){ up[v]=Array(LOG).fill(1); up[v][0]=parent[v]; }
+      const visited = {};
+      function dfsStart(root){
+        if(visited[root]) return;
+        dfsBL(root, root, 0);
+      }
+      for(let i=1;i<=n;i++) if(!visited[i] && adj[i]) dfsBL(i, i, 0);
+      for(let v=1; v<=N; v++){ up[v]=Array(LOG).fill(1); up[v][0]=parent[v]===undefined? v : parent[v]; }
       for(let j=1;j<LOG;j++){
-        for(let v=1;v<=N;v++) up[v][j] = up[ up[v][j-1] ][j-1];
+        for(let v=1;v<=N;v++){
+          const mid = up[v][j-1]; up[v][j] = (up[mid] && up[mid][j-1]) ? up[mid][j-1] : mid;
+        }
       }
     }
 
     function dfsBL(u,p,d){
       if(depth[u]!==undefined) return;
       parent[u]=p; depth[u]=d; nodesOrder.push(u);
-      for(const v of (adj[u]||[])) if(v!==p) dfsBL(v,u,d+1);
+      const neigh = adj[u]||[];
+      for(const v of neigh) if(v!==p) dfsBL(v,u,d+1);
     }
 
     function renderTree(){
@@ -327,9 +319,12 @@ Ví dụ:
       treeSVG.querySelectorAll('circle').forEach(c=>c.style.stroke='#2dd4bf');
       upTableWrap.querySelectorAll('td').forEach(td=>td.classList.remove('animating'));
       lcaResult.textContent = '';
+
       if(depth[u]===undefined || depth[v]===undefined){ alert('Node không tồn tại trong cây'); return; }
+
       if(depth[u] < depth[v]) [u,v]=[v,u];
       let diff = depth[u] - depth[v];
+
       lcaResult.textContent = `Leveling: bring node ${uOrig} up by ${diff} steps`;
       for(let i=LOG-1;i>=0;i--){
         if((diff >> i) & 1){
@@ -344,11 +339,13 @@ Ví dụ:
           await sleep(400);
         }
       }
+
       if(u === v){
         lcaResult.textContent = `LCA = ${u} (found after leveling)`;
         highlightNodeVisual(u, '#f59e0b');
         return u;
       }
+
       lcaResult.textContent = `Searching highest different ancestors (from 2^{${LOG-1}} down) ...`;
       for(let i=LOG-1;i>=0;i--){
         const cellU = upTableWrap.querySelector(`tbody tr:nth-child(${u}) td:nth-child(${i+2})`);
@@ -373,13 +370,13 @@ Ví dụ:
         if(cellU) cellU.classList.remove('animating');
         if(cellV) cellV.classList.remove('animating');
       }
+
       lcaResult.textContent = `LCA = parent[${u}] = ${parent[u]}`;
       highlightNodeVisual(parent[u],'#f59e0b');
       return parent[u];
     }
 
     function highlightNodeVisual(id, color){ const texts = Array.from(treeSVG.querySelectorAll('text')); texts.forEach(t=>{ if(Number(t.textContent)===id){ t.previousSibling.style.stroke = color; } }); }
-
     async function animateBuildUp(n, edges){
       buildAdj(n, edges);
       for(let v=1; v<=N; v++) up[v]=Array(LOG).fill(null);
@@ -398,10 +395,9 @@ Ví dụ:
         }
       }
     }
-
     try{
-      document.getElementById('loadTree').addEventListener('click', ()=>{
-        const text = document.getElementById('treeInput').value.trim();
+      loadTreeBtn.addEventListener('click', ()=>{
+        const text = treeInput.value.trim();
         if(!text){ alert('Nhập cây vào hộp văn bản (hoặc dùng sample)'); return; }
         const lines = text.split(/\n+/).map(s=>s.trim()).filter(Boolean);
         const n = parseInt(lines[0]); if(Number.isNaN(n)){ alert('Dòng đầu phải là n (số đỉnh)'); return; }
@@ -411,9 +407,8 @@ Ví dụ:
         renderTree();
         lcaResult.textContent='Loaded custom tree';
       });
-    }catch(e){}
-
-    document.getElementById('buildTree').addEventListener('click', ()=>{
+    }catch(e){ /* ignore */ }
+    buildTreeBtn.addEventListener('click', ()=>{
       const s = sampleGraphs(sampleTree.value);
       buildAdj(s.n, s.edges);
       renderTree();
@@ -427,29 +422,29 @@ Ví dụ:
       lcaResult.textContent='';
     });
 
-    document.getElementById('findLCA').addEventListener('click', ()=>{
+    findLCA.addEventListener('click', ()=>{
       const u = parseInt(nodeU.value), v = parseInt(nodeV.value);
       if(!u||!v||u<1||v<1||u>N||v>N) { alert('Chọn node hợp lệ'); return; }
       const ans = lca(u,v);
       lcaResult.textContent = 'LCA = ' + ans + ' (depth ' + depth[ans] + ')';
-      const circles = treeSVG.querySelectorAll('circle'); circles.forEach(c=>c.style.stroke='#2dd4bf');
-      let x=u; while(x!==ans){ highlightNode(x); x = parent[x]; if(x===undefined) break; }
-      highlightNode(ans);
-      x=v; while(x!==ans){ highlightNode(x); x = parent[x]; if(x===undefined) break; }
+      highlightPath(u,v,ans);
     });
 
-    document.getElementById('animateLCA').addEventListener('click', ()=>{
+    animateLCA.addEventListener('click', ()=>{
       const u = parseInt(nodeU.value), v = parseInt(nodeV.value);
       if(!u||!v||u<1||v<1||u>N||v>N) { alert('Chọn node hợp lệ'); return; }
       animateLCAProcess(u,v);
     });
 
+    function highlightPath(u,v,anc){
+      treeSVG.querySelectorAll('circle').forEach(c=>c.style.stroke='#2dd4bf');
+      let x=u; while(x!==anc){ highlightNode(x); x = parent[x]; if(x===undefined) break; }
+      highlightNode(anc);
+      x=v; while(x!==anc){ highlightNode(x); x = parent[x]; if(x===undefined) break; }
+    }
     function highlightNode(id){ const texts = Array.from(treeSVG.querySelectorAll('text')); texts.forEach(t=>{ if(t.textContent==id) t.previousSibling.style.stroke = '#f97316'; }); }
-
-    // defaults
-    document.getElementById('arrInput').value = '5 2 4 7 1 3 6 8';
-    document.getElementById('buildArr').click();
-    document.getElementById('treeInput').value = '8\n1 2\n1 3\n2 4\n2 5\n3 6\n2 7\n7 8';
+    arrInput.value = '5 2 4 7 1 3 6 8'; buildArr.click();
+    treeInput.value = '8\n1 2\n1 3\n2 4\n2 5\n3 6\n2 7\n7 8';
     document.getElementById('buildTree').click();
   </script>
 </body>
